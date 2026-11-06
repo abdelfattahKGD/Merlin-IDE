@@ -4,7 +4,7 @@ import fi.iki.elonen.NanoHTTPD
 import java.io.File
 import java.io.FileInputStream
 
-/** Serves the extracted VS Code Web build on 127.0.0.1. Step 2 adds /api/* (files, terminal) here. */
+// Serves the extracted VS Code Web build on 127.0.0.1. Step 2 adds the files and terminal API here.
 class LocalServer(private val root: File, port: Int) : NanoHTTPD("127.0.0.1", port) {
     private val mime = mapOf(
         "html" to "text/html; charset=utf-8", "js" to "text/javascript; charset=utf-8", "mjs" to "text/javascript; charset=utf-8",
