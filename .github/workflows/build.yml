@@ -34,6 +34,7 @@ jobs:
         run: |
           ls vscode-web | head -20
           node scripts/make-index.mjs vscode vscode-web
+          mkdir -p app/src/main/assets
           (cd vscode-web && zip -qr -0 ../app/src/main/assets/merlin-web.zip .)
           ls -lh app/src/main/assets/merlin-web.zip
       - uses: actions/setup-java@v4
