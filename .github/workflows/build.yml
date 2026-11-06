@@ -4,13 +4,17 @@ env:
   VSCODE_TAG: "1.145.2"
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - name: Add swap (the VS Code build is memory hungry)
+        continue-on-error: true
         run: |
-          sudo fallocate -l 8G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          sudo fallocate -l 8G /mnt/vscode-swap
+          sudo chmod 600 /mnt/vscode-swap
+          sudo mkswap /mnt/vscode-swap
+          sudo swapon /mnt/vscode-swap
       - name: Get Code - OSS source (MIT)
         run: git clone --depth 1 --branch "$VSCODE_TAG" https://github.com/microsoft/vscode.git vscode
       - uses: actions/setup-node@v4
