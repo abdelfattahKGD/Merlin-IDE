@@ -1,0 +1,41 @@
+name: Build Merlin APK
+on: { workflow_dispatch: {}, push: { branches: [main] } }
+env:
+  VSCODE_TAG: "1.145.2"
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add swap (the VS Code build is memory hungry)
+        run: |
+          sudo fallocate -l 8G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+      - name: Get Code - OSS source (MIT)
+        run: git clone --depth 1 --branch "$VSCODE_TAG" https://github.com/microsoft/vscode.git vscode
+      - uses: actions/setup-node@v4
+        with: { node-version-file: vscode/.nvmrc }
+      - run: sudo apt-get update && sudo apt-get install -y libkrb5-dev libx11-dev libxkbfile-dev libsecret-1-dev pkg-config
+      - name: Brand as Merlin
+        run: node scripts/brand.mjs vscode branding
+      - name: Install VS Code deps
+        working-directory: vscode
+        env: { ELECTRON_SKIP_BINARY_DOWNLOAD: "1", PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1" }
+        run: npm ci
+      - name: Build VS Code Web
+        working-directory: vscode
+        env: { NODE_OPTIONS: "--max-old-space-size=8192" }
+        run: npm run gulp vscode-web-min
+      - name: Generate index.html and pack
+        run: |
+          ls vscode-web | head -20
+          node scripts/make-index.mjs vscode vscode-web
+          (cd vscode-web && zip -qr -0 ../app/src/main/assets/merlin-web.zip .)
+          ls -lh app/src/main/assets/merlin-web.zip
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.9" }
+      - run: gradle assembleDebug --no-daemon -PverCode=${{ github.run_number }}
+      - uses: actions/upload-artifact@v4
+        with: { name: merlin-apk, path: app/build/outputs/apk/debug/app-debug.apk }
