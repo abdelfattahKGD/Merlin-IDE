@@ -18,6 +18,7 @@ const cfg = {
     'telemetry.telemetryLevel': 'off',
     'security.workspace.trust.enabled': false,
     'update.mode': 'none',
+    'chat.disableAIFeatures': true,
   },
 };
 const html = `<!DOCTYPE html>
