@@ -13,7 +13,7 @@ Object.assign(p, {
   },
   builtInExtensions: [], builtInExtensionsEnabledWithAutoUpdates: [],
 });
-for (const k of ['defaultChatAgent', 'trustedExtensionAuthAccess', 'voiceWsUrl', 'agentsTelemetryAppName', 'sessionsWindowAllowedExtensions']) delete p[k];
+for (const k of ['trustedExtensionAuthAccess', 'voiceWsUrl', 'agentsTelemetryAppName', 'sessionsWindowAllowedExtensions']) delete p[k];
 fs.writeFileSync(pj, JSON.stringify(p, null, '\t'));
 const cp = (a, b) => { fs.mkdirSync(path.dirname(b), { recursive: true }); fs.copyFileSync(path.join(br, a), path.join(vs, b)); };
 cp('code-icon.svg', 'src/vs/workbench/browser/media/code-icon.svg');   // title bar + welcome page logo
