@@ -4,32 +4,63 @@ env:
   VSCODE_TAG: "1.145.2"
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+      - name: Restore cached VS Code Web build
+        id: web
+        uses: actions/cache@v4
+        with:
+          path: vscode-web
+          key: merlin-web-${{ env.VSCODE_TAG }}-${{ hashFiles('scripts/brand.mjs', 'branding/**') }}
       - name: Add swap (the VS Code build is memory hungry)
+        if: steps.web.outputs.cache-hit != 'true'
+        continue-on-error: true
         run: |
-          sudo fallocate -l 8G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          sudo fallocate -l 8G /mnt/vscode-swap
+          sudo chmod 600 /mnt/vscode-swap
+          sudo mkswap /mnt/vscode-swap
+          sudo swapon /mnt/vscode-swap
       - name: Get Code - OSS source (MIT)
+        if: steps.web.outputs.cache-hit != 'true'
         run: git clone --depth 1 --branch "$VSCODE_TAG" https://github.com/microsoft/vscode.git vscode
       - uses: actions/setup-node@v4
+        if: steps.web.outputs.cache-hit != 'true'
         with: { node-version-file: vscode/.nvmrc }
-      - run: sudo apt-get update && sudo apt-get install -y libkrb5-dev libx11-dev libxkbfile-dev libsecret-1-dev pkg-config
+      - name: Install system libraries
+        if: steps.web.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y libkrb5-dev libx11-dev libxkbfile-dev libsecret-1-dev pkg-config
       - name: Brand as Merlin
+        if: steps.web.outputs.cache-hit != 'true'
         run: node scripts/brand.mjs vscode branding
       - name: Install VS Code deps
+        if: steps.web.outputs.cache-hit != 'true'
         working-directory: vscode
         env: { ELECTRON_SKIP_BINARY_DOWNLOAD: "1", PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1" }
         run: npm ci
       - name: Build VS Code Web
+        if: steps.web.outputs.cache-hit != 'true'
         working-directory: vscode
         env: { NODE_OPTIONS: "--max-old-space-size=8192" }
         run: npm run gulp vscode-web-min
+      - uses: actions/setup-node@v4
+        if: steps.web.outputs.cache-hit == 'true'
+        with: { node-version: "22" }
+      - name: Fetch Pyodide (Python for the browser)
+        run: |
+          mkdir -p /tmp/pyo && cd /tmp/pyo && npm init -y >/dev/null && npm install pyodide@314.0.8 --silent
+          mkdir -p "$GITHUB_WORKSPACE/vscode-web/pyodide"
+          cd node_modules/pyodide
+          cp pyodide.mjs pyodide.asm.mjs pyodide.asm.wasm python_stdlib.zip pyodide-lock.json "$GITHUB_WORKSPACE/vscode-web/pyodide/"
       - name: Generate index.html and pack
         run: |
+          mkdir -p vscode/src/vs/code/browser/workbench
+          T=vscode/src/vs/code/browser/workbench/workbench.html
+          [ -f "$T" ] || curl -fsSL "https://raw.githubusercontent.com/microsoft/vscode/${VSCODE_TAG}/src/vs/code/browser/workbench/workbench.html" -o "$T"
           ls vscode-web | head -20
           node scripts/make-index.mjs vscode vscode-web
+          mkdir -p app/src/main/assets
           (cd vscode-web && zip -qr -0 ../app/src/main/assets/merlin-web.zip .)
           ls -lh app/src/main/assets/merlin-web.zip
       - uses: actions/setup-java@v4

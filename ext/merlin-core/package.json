@@ -1,0 +1,19 @@
+{
+  "name": "merlin-core",
+  "displayName": "Merlin Core",
+  "publisher": "merlin",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.90.0" },
+  "browser": "./extension.js",
+  "activationEvents": ["onFileSystem:merlin", "onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "merlin.run", "title": "Merlin: Run File", "icon": "$(play)" },
+      { "command": "merlin.stop", "title": "Merlin: Stop Running Command", "icon": "$(debug-stop)" }
+    ],
+    "menus": {
+      "editor/title": [{ "command": "merlin.run", "group": "navigation@1", "when": "resourceScheme == merlin" }]
+    },
+    "terminal": { "profiles": [{ "id": "merlin.shell", "title": "Merlin Shell" }] }
+  }
+}
