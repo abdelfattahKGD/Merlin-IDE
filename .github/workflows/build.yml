@@ -37,8 +37,8 @@ jobs:
       - name: Install VS Code deps
         if: steps.web.outputs.cache-hit != 'true'
         working-directory: vscode
-        env: { ELECTRON_SKIP_BINARY_DOWNLOAD: "1", PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1" }
-        run: npm ci
+        env: { ELECTRON_SKIP_BINARY_DOWNLOAD: "1", PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1", GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        run: npm ci || (sleep 30 && npm ci)
       - name: Build VS Code Web
         if: steps.web.outputs.cache-hit != 'true'
         working-directory: vscode
