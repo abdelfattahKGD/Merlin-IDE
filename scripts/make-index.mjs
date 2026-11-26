@@ -8,6 +8,25 @@ const find = re => list.find(f => re.test(f));
 const js = find(/^workbench\.web\.main\.internal\.js$/) || find(/^workbench\.web\.main.*\.js$/);
 const css = find(/^workbench\.web\.main\.internal\.css$/) || find(/^workbench\.web\.main.*\.css$/);
 if (!js) throw new Error('workbench js not found in out/vs/workbench. Files: ' + list.filter(f => /web|main/.test(f)).join(', '));
+// Show "Merlin" instead of VS Code's names in user-visible text. Only the capitalised display names are replaced
+// (identifiers like "vscode" are untouched). HTML and webview files are skipped: their CSP hashes would break.
+const NAMES = [[/Visual Studio Code/g, 'Merlin'], [/VS Code/g, 'Merlin'], [/Code - OSS/g, 'Merlin']];
+let rebrandedFiles = 0, rebrandedHits = 0;
+function rebrand(dir, accept) {
+  if (!fs.existsSync(dir)) return;
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) { if (e.name !== 'node_modules' && e.name !== 'webview') rebrand(p, accept); continue; }
+    if (!accept(p)) continue;
+    let text = fs.readFileSync(p, 'utf8'), n = 0;
+    for (const [re, to] of NAMES) text = text.replace(re, () => { n++; return to; });
+    if (n) { fs.writeFileSync(p, text); rebrandedFiles++; rebrandedHits += n; }
+  }
+}
+rebrand(path.join(web, 'out'), p => /\.(js|json)$/.test(p));
+rebrand(path.join(web, 'extensions'), p => /package(\.nls(\.[\w-]+)?)?\.json$/.test(p));
+console.log('rebranded text:', rebrandedHits, 'replacements in', rebrandedFiles, 'files');
+
 const nls = fs.existsSync(path.join(web, 'out/nls.messages.js'));
 const cfg = {
   callbackRoute: '/callback',
