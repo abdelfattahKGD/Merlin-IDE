@@ -53,6 +53,12 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/vscode-web/pyodide"
           cd node_modules/pyodide
           cp pyodide.mjs pyodide.asm.mjs pyodide.asm.wasm python_stdlib.zip pyodide-lock.json "$GITHUB_WORKSPACE/vscode-web/pyodide/"
+      - name: Fetch C/C++ loader (small; the 29 MB compiler pack downloads on demand)
+        run: |
+          mkdir -p /tmp/clangpkg && cd /tmp/clangpkg && npm init -y >/dev/null && npm install @live-codes/clang-wasm@0.3.0 --silent
+          mkdir -p "$GITHUB_WORKSPACE/vscode-web/clang"
+          cd node_modules/@live-codes/clang-wasm
+          cp dist/clang-wasm.global.js LICENSE THIRD-PARTY-NOTICES.md "$GITHUB_WORKSPACE/vscode-web/clang/"
       - name: Generate index.html and pack
         run: |
           mkdir -p vscode/src/vs/code/browser/workbench
