@@ -25,19 +25,28 @@
       },
       {
         "command": "merlin.installC",
-        "title": "Merlin: Install C/C++ Pack"
+        "title": "Merlin: Install C/C++ Pack",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "merlin.removeC",
-        "title": "Merlin: Remove C/C++ Pack"
+        "title": "Merlin: Remove C/C++ Pack",
+        "icon": "$(trash)"
       },
       {
         "command": "merlin.installPython",
-        "title": "Merlin: Install Python (native) Pack"
+        "title": "Merlin: Install Python (native) Pack",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "merlin.removePython",
-        "title": "Merlin: Remove Python (native) Pack"
+        "title": "Merlin: Remove Python (native) Pack",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "merlin.refreshPacks",
+        "title": "Merlin: Refresh Packs",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -47,6 +56,35 @@
           "group": "navigation@1",
           "when": "resourceScheme == merlin"
         }
+      ],
+      "view/item/context": [
+        {
+          "command": "merlin.installC",
+          "when": "view == merlin.packs && viewItem == c-missing",
+          "group": "inline"
+        },
+        {
+          "command": "merlin.removeC",
+          "when": "view == merlin.packs && viewItem == c-installed",
+          "group": "inline"
+        },
+        {
+          "command": "merlin.installPython",
+          "when": "view == merlin.packs && viewItem == pynative-missing",
+          "group": "inline"
+        },
+        {
+          "command": "merlin.removePython",
+          "when": "view == merlin.packs && viewItem == pynative-installed",
+          "group": "inline"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "merlin.refreshPacks",
+          "when": "view == merlin.packs",
+          "group": "navigation"
+        }
       ]
     },
     "terminal": {
@@ -54,6 +92,24 @@
         {
           "id": "merlin.shell",
           "title": "Merlin Shell"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "merlinPacks",
+          "title": "Merlin Packs",
+          "icon": "$(cloud-download)"
+        }
+      ]
+    },
+    "views": {
+      "merlinPacks": [
+        {
+          "id": "merlin.packs",
+          "name": "Packs",
+          "type": "tree"
         }
       ]
     }

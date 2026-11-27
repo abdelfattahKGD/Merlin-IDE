@@ -42,6 +42,13 @@ const cfg = {
     'terminal.integrated.defaultProfile.linux': 'Merlin Shell',
   },
 };
+if (process.env.VARIANT === 'slim') {
+  Object.assign(cfg.configurationDefaults, {
+    'editor.minimap.enabled': false, 'workbench.startupEditor': 'none', 'workbench.tips.enabled': false,
+    'workbench.enableExperiments': false, 'extensions.autoCheckUpdates': false, 'extensions.autoUpdate': false,
+    'git.enabled': false, 'editor.codeLens': false,
+  });
+}
 const html = `<!DOCTYPE html>
 <html>
 <head>

@@ -1,7 +1,16 @@
 name: Build Merlin APK
-on: { workflow_dispatch: {}, push: { branches: [main] } }
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "full = complete VS Code; slim = fewer built-in features (to compare speed and memory)"
+        type: choice
+        options: [full, slim]
+        default: full
+  push: { branches: [main] }
 env:
   VSCODE_TAG: "1.145.2"
+  VARIANT: ${{ inputs.variant || 'full' }}
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -13,7 +22,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: vscode-web
-          key: merlin-web-${{ env.VSCODE_TAG }}-${{ hashFiles('scripts/brand.mjs', 'branding/**') }}
+          key: merlin-web-${{ env.VSCODE_TAG }}-${{ env.VARIANT }}-${{ hashFiles('scripts/brand.mjs', 'branding/**') }}
       - name: Add swap (the VS Code build is memory hungry)
         if: steps.web.outputs.cache-hit != 'true'
         continue-on-error: true
@@ -33,7 +42,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libkrb5-dev libx11-dev libxkbfile-dev libsecret-1-dev pkg-config
       - name: Brand as Merlin
         if: steps.web.outputs.cache-hit != 'true'
-        run: node scripts/brand.mjs vscode branding
+        run: node scripts/brand.mjs vscode branding "$VARIANT"
       - name: Install VS Code deps
         if: steps.web.outputs.cache-hit != 'true'
         working-directory: vscode
@@ -78,6 +87,6 @@ jobs:
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.9" }
-      - run: gradle assembleDebug --no-daemon -PverCode=${{ github.run_number }}
+      - run: gradle assembleDebug --no-daemon -PverCode=${{ github.run_number }} -PappSuffix=${{ env.VARIANT == 'slim' && '.slim' || '' }}
       - uses: actions/upload-artifact@v4
-        with: { name: merlin-apk, path: app/build/outputs/apk/debug/app-debug.apk }
+        with: { name: "merlin-${{ env.VARIANT }}-apk", path: app/build/outputs/apk/debug/app-debug.apk }

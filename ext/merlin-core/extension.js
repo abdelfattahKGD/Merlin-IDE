@@ -108,6 +108,34 @@ async function removePack() {
   catch (e) { vscode.window.showErrorMessage('Could not remove the pack: ' + e.message); }
 }
 
+// ---- Packs view: one registry entry per downloadable runtime (add a pack = add an object here) ----
+const PACKS = [
+  { id: 'pyodide', label: 'Python (built-in)', detail: 'Runs inside the app (Pyodide). pip for pure-Python and common packages.', builtin: true, installed: async () => true },
+  { id: 'c', label: 'C / C++ (Clang)', size: '29 MB', detail: 'Compile and run .c and .cpp files. Works offline after the first download.', installed: packCached, install: () => installPack(), remove: () => removePack() },
+  { id: 'pynative', label: 'Python (native)', size: 'about 35 MB', detail: 'Real CPython: subprocess, sockets, pip with native wheels.', installed: () => pythonInstalled(true), install: () => installPython(), remove: () => removePython() },
+];
+class PacksTree {
+  constructor() { this._e = new vscode.EventEmitter(); this.onDidChangeTreeData = this._e.event; }
+  refresh() { this._e.fire(); }
+  async getChildren() { const out = []; for (const p of PACKS) out.push(Object.assign({}, p, { ok: await p.installed().catch(() => false) })); return out; }
+  getTreeItem(p) {
+    const it = new vscode.TreeItem(p.label, vscode.TreeItemCollapsibleState.None);
+    it.description = p.builtin ? 'built in' : (p.ok ? 'installed' : p.size + ' - tap to install');
+    it.tooltip = p.detail;
+    it.iconPath = new vscode.ThemeIcon(p.ok ? 'pass-filled' : 'cloud-download');
+    it.contextValue = p.builtin ? 'builtin' : p.id + (p.ok ? '-installed' : '-missing');
+    if (!p.ok && !p.builtin) it.command = { command: 'merlin.packInstall', title: 'Install', arguments: [p.id] };
+    return it;
+  }
+}
+let packsTree = null;
+async function packInstall(id) {
+  const p = PACKS.find(x => x.id === id);
+  if (!p || !p.install) return;
+  const ok = await vscode.window.showInformationMessage('Install "' + p.label + '" (' + p.size + ')? ' + p.detail, { modal: false }, 'Install');
+  if (ok === 'Install') { await p.install(); if (packsTree) packsTree.refresh(); }
+}
+
 let root = null;
 async function getRoot() { if (!root) root = (await (await fetch(BASE + '/info')).json()).root; return root; }
 
@@ -338,10 +366,15 @@ function activate(context) {
     if (current.t.isBusy()) return vscode.window.showInformationMessage('A command is still running (Ctrl+C in the terminal stops it).');
     await current.t.run(runners[ext] + ' ' + sq(abs));
   }));
-  context.subscriptions.push(vscode.commands.registerCommand('merlin.installPython', installPython));
-  context.subscriptions.push(vscode.commands.registerCommand('merlin.removePython', removePython));
-  context.subscriptions.push(vscode.commands.registerCommand('merlin.installC', installPack));
-  context.subscriptions.push(vscode.commands.registerCommand('merlin.removeC', removePack));
+  packsTree = new PacksTree();
+  const after = f => async (...a) => { try { await f(...a); } finally { packsTree.refresh(); } };
+  context.subscriptions.push(vscode.window.registerTreeDataProvider('merlin.packs', packsTree));
+  context.subscriptions.push(vscode.commands.registerCommand('merlin.refreshPacks', () => packsTree.refresh()));
+  context.subscriptions.push(vscode.commands.registerCommand('merlin.packInstall', packInstall));
+  context.subscriptions.push(vscode.commands.registerCommand('merlin.installPython', after(installPython)));
+  context.subscriptions.push(vscode.commands.registerCommand('merlin.removePython', after(removePython)));
+  context.subscriptions.push(vscode.commands.registerCommand('merlin.installC', after(installPack)));
+  context.subscriptions.push(vscode.commands.registerCommand('merlin.removeC', after(removePack)));
   context.subscriptions.push(vscode.commands.registerCommand('merlin.stop', () => {
     if (current) current.term.sendText('\x03', false);
   }));
