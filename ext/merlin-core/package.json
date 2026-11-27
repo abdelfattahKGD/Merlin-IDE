@@ -30,6 +30,14 @@
       {
         "command": "merlin.removeC",
         "title": "Merlin: Remove C/C++ Pack"
+      },
+      {
+        "command": "merlin.installPython",
+        "title": "Merlin: Install Python (native) Pack"
+      },
+      {
+        "command": "merlin.removePython",
+        "title": "Merlin: Remove Python (native) Pack"
       }
     ],
     "menus": {

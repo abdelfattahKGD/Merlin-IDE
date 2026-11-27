@@ -1,0 +1,36 @@
+name: Build Python pack (native, Android arm64)
+# Run this once by hand (Actions tab > Run workflow). It builds CPython for Android and publishes it as a
+# GitHub Release asset; the app then downloads it on demand ("Merlin: Install Python (native) Pack").
+on: { workflow_dispatch: {} }
+permissions: { contents: write }
+env:
+  PY_TAG: "v3.14.10"
+jobs:
+  pack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - name: Get CPython source
+        run: git clone --depth 1 --branch "$PY_TAG" https://github.com/python/cpython.git cpython
+      - name: Host build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config zlib1g-dev libssl-dev libffi-dev libbz2-dev liblzma-dev libsqlite3-dev
+      - name: Build the build-machine Python
+        working-directory: cpython/Android
+        run: ./android.py build build
+      - name: Cross-build Python for Android arm64
+        working-directory: cpython/Android
+        run: ./android.py build aarch64-linux-android
+      - name: Assemble the pack
+        run: |
+          FULL="${PY_TAG#v}"; MINOR="${FULL%.*}"
+          bash scripts/make-python-pack.sh "$MINOR" "$FULL"
+      - name: Publish as a release asset
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        run: |
+          FULL="${PY_TAG#v}"; TAG="python-$FULL"
+          gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1 || \
+            gh release create "$TAG" --repo "${{ github.repository }}" --title "Python $FULL pack (Android arm64)" --notes "Optional runtime pack that Merlin downloads on demand."
+          gh release upload "$TAG" "python-$FULL-android-arm64.tar.gz" "python-$FULL-android-arm64.tar.gz.sha256" --repo "${{ github.repository }}" --clobber

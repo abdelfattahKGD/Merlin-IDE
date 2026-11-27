@@ -15,8 +15,37 @@ async function call(path, opts, uri) {
   return r;
 }
 
+let fsProvider = null;
+// Tell the Explorer about changes through file events (silent). The "Refresh Explorer" command was removed on purpose:
+// it also opens the sidebar, which re-opened it after every run and reset the panel size.
+function emitChanges(created, changed, deleted) {
+  if (!fsProvider) return;
+  const U = p => vscode.Uri.from({ scheme: 'merlin', path: p });
+  const ev = [];
+  for (const p of created) ev.push({ type: vscode.FileChangeType.Created, uri: U(p) });
+  for (const p of changed) ev.push({ type: vscode.FileChangeType.Changed, uri: U(p) });
+  for (const p of deleted) ev.push({ type: vscode.FileChangeType.Deleted, uri: U(p) });
+  if (ev.length) fsProvider._e.fire(ev.slice(0, 500));
+}
+async function snapshotTree() {
+  try { return new Map(await (await fetch(BASE + '/fs/tree')).json()); } catch (e) { return null; }
+}
+function emitDiff(before, after) {
+  const created = [], deleted = [];
+  for (const [p] of after) if (!before.has(p)) created.push(p);
+  for (const [p] of before) if (!after.has(p)) deleted.push(p);
+  emitChanges(created, [], deleted);
+}
+let nativeChecked = 0, nativeInstalled = false;
+async function pythonInstalled(force) {
+  if (!force && Date.now() - nativeChecked < 3000) return nativeInstalled;
+  try { nativeInstalled = !!(await (await fetch(BASE + '/pack/python/status')).json()).installed; } catch (e) { nativeInstalled = false; }
+  nativeChecked = Date.now();
+  return nativeInstalled;
+}
+
 class MerlinFS {
-  constructor() { this._e = new vscode.EventEmitter(); this.onDidChangeFile = this._e.event; }
+  constructor() { this._e = new vscode.EventEmitter(); this.onDidChangeFile = this._e.event; fsProvider = this; }
   watch() { return new vscode.Disposable(() => {}); }
   async stat(uri) { const j = await (await call('/fs/stat?' + qs({ p: uri.path }), {}, uri)).json(); return { type: j.type, size: j.size, mtime: j.mtime, ctime: j.ctime }; }
   async readDirectory(uri) { return (await call('/fs/list?' + qs({ p: uri.path }), {}, uri)).json(); }
@@ -50,6 +79,29 @@ async function installPack() {
     w.onerror = ev => { w.terminate(); vscode.window.showErrorMessage('C/C++ pack: worker error ' + (ev.message || '')); resolve(); };
     w.postMessage({ t: 'install' });
   }));
+}
+async function installPython() {
+  await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Merlin: native Python pack' }, async progress => {
+    try {
+      let st = await (await fetch(BASE + '/pack/python/status')).json();
+      if (st.installed) { vscode.window.showInformationMessage('Native Python pack is already installed.'); return; }
+      await fetch(BASE + '/pack/python/install', { method: 'POST' });
+      let last = 0;
+      for (;;) {
+        await new Promise(r => setTimeout(r, 700));
+        st = await (await fetch(BASE + '/pack/python/status')).json();
+        if (st.state === 'error') throw new Error(st.error || 'failed');
+        progress.report({ increment: Math.max(0, st.percent - last), message: st.state + ' ' + st.percent + '%' }); last = st.percent;
+        if (st.state === 'done' || st.installed) break;
+      }
+      await pythonInstalled(true);
+      vscode.window.showInformationMessage('Native Python is ready: python file.py and pip now use it.');
+    } catch (e) { vscode.window.showErrorMessage('Python pack failed: ' + e.message); }
+  });
+}
+async function removePython() {
+  try { await fetch(BASE + '/pack/python/remove', { method: 'POST' }); await pythonInstalled(true); vscode.window.showInformationMessage('Native Python pack removed (the built-in Python stays).'); }
+  catch (e) { vscode.window.showErrorMessage('Could not remove the pack: ' + e.message); }
 }
 async function removePack() {
   try { const c = await caches.open('merlin-pkgs'); const ks = await packKeys(); for (const k of ks) await c.delete(k); vscode.window.showInformationMessage('C/C++ pack removed (' + ks.length + ' files).'); }
@@ -96,7 +148,13 @@ function makeTerminal() {
   const post = (p, body) => fetch(BASE + p, { method: 'POST', body: body === undefined ? '' : body });
   const write = s => out.fire(String(s).replace(/\r?\n/g, '\r\n'));
   const prompt = () => out.fire('\x1b[32m' + (cwd.split('/').pop() || '/') + '\x1b[0m $ ');
-  const refresh = () => vscode.commands.executeCommand('workbench.files.action.refreshFilesExplorer');
+  let treeBefore = null, pySent = new Set();
+  const refresh = async () => {
+    if (!treeBefore) return;
+    const b = treeBefore; treeBefore = null;
+    const a = await snapshotTree();
+    if (a) emitDiff(b, a);
+  };
 
   function handle(ev) {
     if (ev.t === 'o') write(ev.d);
@@ -123,6 +181,7 @@ function makeTerminal() {
       try {
         for (const f of m.changed) await fetch(BASE + '/fs/write?' + qs({ p: f.path, create: 1, overwrite: 1 }), { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: f.data });
         for (const p of m.deleted) await fetch(BASE + '/fs/delete?' + qs({ p }), { method: 'POST' });
+        emitChanges(m.changed.filter(f => !pySent.has(f.path)).map(f => f.path), m.changed.filter(f => pySent.has(f.path)).map(f => f.path), m.deleted);
       } catch (e) { write('\x1b[31mcould not save files: ' + e.message + '\x1b[0m\n'); }
       pyDone();
     }
@@ -155,6 +214,7 @@ function makeTerminal() {
       await post('/term/' + id + '/pyreset');
       const dir = ws.slice(0, ws.lastIndexOf('/')) || '/';
       const files = await collect(dir);
+      pySent = new Set(files.map(f => f.path));
       getWorker();
       worker.postMessage({ t: 'run', sid: id, files, cwd: dir, script: ws, args });
     } catch (e) { write('\x1b[31m' + e.message + '\x1b[0m\n'); killPy(); pyDone(); }
@@ -172,10 +232,11 @@ function makeTerminal() {
       }
     } else if (m.t === 'o') write(m.d);
     else if (m.t === 'fatal') { write('\x1b[31mC/C++ compiler error: ' + m.d + '\x1b[0m\n\x1b[90m(the first run needs internet to download the pack)\x1b[0m\n'); killC(); cDone(); }
-    else if (m.t === 'done') { if (m.code) write('\x1b[90m[exit ' + m.code + ']\x1b[0m\n'); cDone(); }
+    else if (m.t === 'done') { if (m.code) write('\x1b[90m[exit ' + m.code + ']\x1b[0m\n'); killC(); cDone(); }
   }
   async function startC(job, input) {
     cBusy = busy = true; lastPct = -1;
+    if (worker) { worker.terminate(); worker = null; }   // free the Python worker's memory while the compiler runs
     try {
       cCached = await packCached();
       if (!cworker) {
@@ -216,13 +277,17 @@ function makeTerminal() {
     if (inputJob) { if (text === '') { const j = inputJob; inputJob = null; return startC(j, j.lines.join('\n') + (j.lines.length ? '\n' : '')); } inputJob.lines.push(text); return; }
     if (cBusy) return;
     if (pyBusy) return post('/term/' + id + '/pyin', text);
+    if (/^\s*(?:python3?|pip3?)(?:\s|$)/.test(text) && await pythonInstalled()) {
+      if (/^\s*python3?\s*$/.test(text)) { write('python: the interactive prompt needs a real terminal here - run a file: python file.py\n'); return pyDone(); }
+      treeBefore = await snapshotTree(); busy = true; return post('/term/' + id + '/in', text);   // native Python from the pack
+    }
     const pp = /^\s*(?:python3?\s+-m\s+)?pip3?(?:\s+(.*))?$/.exec(text);
     if (pp) return runPip(pp[1] || '');
     const py = /^\s*python3?(?:\s+(.*))?$/.exec(text);
     if (py) { if (!py[1]) { write('Merlin Python runs files only: python file.py\n'); return pyDone(); } return runPy(py[1]); }
     const cc = /^\s*(gcc|g\+\+|cc|c\+\+|clang|clang\+\+)(?:\s+(.*))?$/.exec(text);
     if (cc) { if (!cc[2]) { write('usage: ' + cc[1] + ' file.c\n'); return cDone(); } return runC(cc[1], cc[2]); }
-    busy = true; return post('/term/' + id + '/in', text);
+    treeBefore = await snapshotTree(); busy = true; return post('/term/' + id + '/in', text);
   };
   const pty = {
     onDidWrite: out.event, onDidClose: closed.event,
@@ -273,6 +338,8 @@ function activate(context) {
     if (current.t.isBusy()) return vscode.window.showInformationMessage('A command is still running (Ctrl+C in the terminal stops it).');
     await current.t.run(runners[ext] + ' ' + sq(abs));
   }));
+  context.subscriptions.push(vscode.commands.registerCommand('merlin.installPython', installPython));
+  context.subscriptions.push(vscode.commands.registerCommand('merlin.removePython', removePython));
   context.subscriptions.push(vscode.commands.registerCommand('merlin.installC', installPack));
   context.subscriptions.push(vscode.commands.registerCommand('merlin.removeC', removePack));
   context.subscriptions.push(vscode.commands.registerCommand('merlin.stop', () => {

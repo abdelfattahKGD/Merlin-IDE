@@ -38,6 +38,7 @@ const cfg = {
     'security.workspace.trust.enabled': false,
     'update.mode': 'none',
     'chat.disableAIFeatures': true,
+    'workbench.sash.size': 20,   // bigger drag area so panels can be resized by touch
     'terminal.integrated.defaultProfile.linux': 'Merlin Shell',
   },
 };

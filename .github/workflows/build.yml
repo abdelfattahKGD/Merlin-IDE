@@ -69,6 +69,11 @@ jobs:
           mkdir -p app/src/main/assets
           (cd vscode-web && zip -qr -0 ../app/src/main/assets/merlin-web.zip .)
           ls -lh app/src/main/assets/merlin-web.zip
+      - name: Pack sources (where the app downloads optional packs from)
+        run: |
+          mkdir -p app/src/main/assets
+          echo "{\"pythonUrl\":\"https://github.com/${{ github.repository }}/releases/download/python-3.14.10/python-3.14.10-android-arm64.tar.gz\"}" > app/src/main/assets/packs.json
+          cat app/src/main/assets/packs.json
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@v4

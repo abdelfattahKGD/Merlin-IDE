@@ -15,12 +15,15 @@ import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
+import org.json.JSONObject
 import java.io.File
 import java.util.zip.ZipInputStream
 
@@ -63,8 +66,22 @@ class MainActivity : Activity() {
         }
         web.webViewClient = object : WebViewClient() {
             override fun onPageFinished(v: WebView, url: String) { splash.postDelayed({ splash.visibility = View.GONE }, 600) }
+            override fun onRenderProcessGone(v: WebView, d: RenderProcessGoneDetail): Boolean {
+                // Without this Android kills the whole app when the web renderer dies (typically out of memory on 3 GB phones).
+                val why = if (d.didCrash()) "crashed" else "was killed by Android (probably out of memory)"
+                getSharedPreferences("merlin", 0).edit().putString("lastCrash", "The web view $why").apply()
+                runOnUiThread { (v.parent as? FrameLayout)?.removeView(v); v.destroy(); recreate() }
+                return true
+            }
             override fun onReceivedHttpError(v: WebView, r: WebResourceRequest, e: WebResourceResponse) { note("HTTP ${e.statusCode} ${r.url}") }
             override fun onReceivedError(v: WebView, r: WebResourceRequest, e: WebResourceError) { note("ERR ${e.description} ${r.url}") }
+        }
+        getSharedPreferences("merlin", 0).let { pr ->
+            pr.getString("lastCrash", null)?.let { c ->
+                note("Previous session: $c")
+                Toast.makeText(this, "Merlin restarted: $c", Toast.LENGTH_LONG).show()
+                pr.edit().remove("lastCrash").apply()
+            }
         }
         if (Build.VERSION.SDK_INT >= 23 && !hasStorage())
             requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE), 1)
@@ -89,7 +106,8 @@ class MainActivity : Activity() {
             try {
                 val root = prepareWeb { runOnUiThread { msg.text = "Merlin - preparing (first run)..." } }
                 val ws = workspaceDir()
-                server = LocalServer(root, ws, cacheDir, port).also { it.start() }
+                val packUrl = try { JSONObject(assets.open("packs.json").bufferedReader().use { it.readText() }).optString("pythonUrl") } catch (e: Exception) { "" }
+                server = LocalServer(root, ws, cacheDir, Packs(this, packUrl), port).also { it.start() }
                 runOnUiThread {
                     web.loadUrl("http://127.0.0.1:$port/")
                     // If VS Code never started, its fallback message is still on the page: show what went wrong.

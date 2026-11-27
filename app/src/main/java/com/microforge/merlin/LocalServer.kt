@@ -11,7 +11,7 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicInteger
 
 // Serves the VS Code Web build (static) and the /api used by the built-in Merlin extension: files + shell.
-class LocalServer(private val web: File, private val workspace: File, private val tmp: File, port: Int) : NanoHTTPD("127.0.0.1", port) {
+class LocalServer(private val web: File, private val workspace: File, private val tmp: File, private val packs: Packs, port: Int) : NanoHTTPD("127.0.0.1", port) {
     private val mime = mapOf(
         "html" to "text/html; charset=utf-8", "js" to "text/javascript; charset=utf-8", "mjs" to "text/javascript; charset=utf-8",
         "css" to "text/css; charset=utf-8", "json" to "application/json; charset=utf-8", "svg" to "image/svg+xml",
@@ -62,6 +62,12 @@ class LocalServer(private val web: File, private val workspace: File, private va
         val q = s.parms
         if (path == "info") return json(JSONObject().put("root", workspace.canonicalPath))
         if (path.startsWith("fs/")) return fs(path.removePrefix("fs/"), q, s)
+        if (path.startsWith("pack/python/")) return when (path.removePrefix("pack/python/")) {
+            "status" -> json(packs.status())
+            "install" -> { packs.installPython(); json(packs.status()) }
+            "remove" -> { packs.removePython(); json(packs.status()) }
+            else -> text(Response.Status.NOT_FOUND, "unknown pack action")
+        }
         if (path == "term/start") {
             val id = nextId.incrementAndGet().toString()
             terms[id] = Term(workspace.canonicalFile)
@@ -93,6 +99,15 @@ class LocalServer(private val web: File, private val workspace: File, private va
             "stat" -> {
                 val f = resolve(q["p"]); if (!f.exists()) return text(nf, "nf")
                 return json(JSONObject().put("type", if (f.isDirectory) 2 else 1).put("size", f.length()).put("mtime", f.lastModified()).put("ctime", f.lastModified()))
+            }
+            "tree" -> {
+                val a = JSONArray()
+                var n = 0
+                val skip = setOf(".git", "node_modules", "__pycache__")
+                workspace.walkTopDown().onEnter { it.name !in skip }.forEach {
+                    if (it != workspace && n < 8000) { n++; a.put(JSONArray().put("/" + it.relativeTo(workspace).invariantSeparatorsPath).put(if (it.isDirectory) 2 else 1)) }
+                }
+                return json(a)
             }
             "list" -> {
                 val f = resolve(q["p"]); if (!f.isDirectory) return text(nf, "nf")
@@ -154,10 +169,22 @@ class LocalServer(private val web: File, private val workspace: File, private va
 
         private fun run(cmd: String) {
             try {
-                val pb = ProcessBuilder("/system/bin/sh", "-c", cmd).directory(cwd).redirectErrorStream(true)
+                // "python x.py" without shell syntax is exec'd so Ctrl+C stops Python itself, not just the wrapper shell
+                val first = cmd.split(Regex("\\s+"))[0]
+                val plain = cmd.none { it in ";&|<>()\$`\\\n" }
+                val line = if (plain && (first == "python" || first == "python3")) "exec $cmd" else cmd
+                val pb = ProcessBuilder("/system/bin/sh", "-c", line).directory(cwd).redirectErrorStream(true)
                 pb.environment().apply {
                     put("HOME", workspace.path); put("TMPDIR", tmp.path); put("PWD", cwd.path)
                     put("PATH", "/system/bin:/system/xbin:" + (System.getenv("PATH") ?: ""))
+                    if (packs.pythonInstalled()) {
+                        val h = packs.pythonHome.path
+                        put("PATH", "$h/bin:" + (get("PATH") ?: ""))
+                        put("PYTHONHOME", h); put("PYTHONUNBUFFERED", "1"); put("PIP_DISABLE_PIP_VERSION_CHECK", "1")
+                        put("LD_LIBRARY_PATH", "$h/lib" + (System.getenv("LD_LIBRARY_PATH")?.let { ":$it" } ?: ""))
+                        put("SSL_CERT_DIR", "/system/etc/security/cacerts")
+                        put("PIP_EXTRA_INDEX_URL", "https://pypi.anaconda.org/beeware/simple")
+                    }
                 }
                 val p = pb.start(); proc = p
                 Thread {
